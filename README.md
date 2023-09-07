@@ -1,2 +1,2 @@
 # AlloyGAN
-Try find it's possibility
+Here is the project to create a Uniform Framework to employ alloy data to generate new promising alloy.
