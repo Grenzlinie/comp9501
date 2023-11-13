@@ -8,7 +8,7 @@ import torch.autograd as autograd
 from Data_Process_Util.dataloader import create_dataloader
 from Network_Model.WGAN import Generator, Discriminator
 
-# from torch.optim.lr_scheduler import StepLR
+from draw import plot_losses
 
 # ------------
 #  Preparation
@@ -17,15 +17,15 @@ from Network_Model.WGAN import Generator, Discriminator
 # set default hyperparameters
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=150, help="number of epochs of training")
-parser.add_argument("--batch_size", type=int, default=50, help="size of the batches")
-parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
+parser.add_argument("--batch_size", type=int, default=120, help="size of the batches")
+parser.add_argument("--lr", type=float, default=0.0001, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of second order momentum of gradient")
 parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
-parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
+parser.add_argument("--latent_dim", type=int, default=50, help="dimensionality of the latent space")
 parser.add_argument("--n_critic", type=int, default=1, help="number of training steps for discriminator per iter")
-# parser.add_argument("--sample_interval", type=int, default=1, help="interval betwen composition samples")
-parser.add_argument("--n_properties", type=int, default=2, help="number of properties")
+# parser.add_argument("--sample_interval", type=int, default=1, help="interval between composition samples")
+parser.add_argument("--n_properties", type=int, default=1, help="number of properties")
 parser.add_argument("--n_compositions", type=int, default=6, help="number of chemical species")
 parser.add_argument("--seed", type=int, default=42, help="seed for training")
 opt = parser.parse_args()
@@ -52,11 +52,9 @@ if cuda:
 # Optimizers
 optimizer_G = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
 optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
-# schedulerD = StepLR(optimizer_D, step_size=10, gamma=0.98)
-# schedulerG = StepLR(optimizer_G, step_size=10, gamma=0.98)
 
-Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor # type: ignore
-LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor # type: ignore
+Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 
 # Gradient Penalty
 def compute_gradient_penalty(D, real_samples, fake_samples, labels):
@@ -96,15 +94,9 @@ train_dataloader, valid_dataloader = create_dataloader('./Data_Warehouse/data.xl
 #  Training
 # ----------
 
-# batches_done = 0
-# sample_storage = []
-
 results = []
 for epoch in range(opt.n_epochs):
-    temp_g_loss = []
     temp_d_loss = []
-    temp_d_real_loss = []
-    temp_d_fake_loss = []
     for i, (compositions, properties) in enumerate(train_dataloader):
         batch_size = opt.batch_size
 
@@ -136,8 +128,6 @@ for epoch in range(opt.n_epochs):
         # Adversarial loss
         d_loss = - torch.mean(real_validity) + torch.mean(fake_validity) + lambda_gp * gradient_penalty
 
-        # d_loss = (adversarial_loss(real_validity, valid) + adversarial_loss(fake_validity, fake)) / 2
-
         d_loss.backward()
         optimizer_D.step()
 
@@ -153,105 +143,42 @@ for epoch in range(opt.n_epochs):
             # Generate a batch of compositions
             fake_comps = generator(labels, latent_code)
             # Loss measures generator's ability to fool the discriminator
-            # Train on fake images
+            # Train on fake samples
             fake_validity = discriminator(fake_comps, labels)
             euclidean_distance = []
-            # for kk in range(opt.batch_size):
-            #     euclidean_distance.append(np.linalg.norm(fake_comps.detach().numpy() - real_comps.detach().numpy()))
-            g_loss = - torch.mean(fake_validity) 
-            # + torch.tensor(np.mean(euclidean_distance)).type(Tensor)
-            # g_loss = adversarial_loss(fake_validity, valid)
+            g_loss = - torch.mean(fake_validity)
 
             g_loss.backward()
             optimizer_G.step()
 
             print(
-                "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]"
-                % (epoch, opt.n_epochs, i, len(train_dataloader), d_loss.item(), g_loss.item())
+                "[Epoch %d/%d] [Batch %d/%d] [D loss: %f]"
+                % (epoch, opt.n_epochs, i, len(train_dataloader), d_loss.item())
             )
 
-            temp_g_loss.append(g_loss.item())
             temp_d_loss.append(d_loss.item())
-            temp_d_fake_loss.append(torch.mean(fake_validity).item())
-            temp_d_real_loss.append(-torch.mean(real_validity).item())
-            # if batches_done % opt.sample_interval == 0:
-            #     # store the fake compositions
-            #     pass
-
-            # batches_done += opt.n_critic
 
     temp_d_loss = np.mean(temp_d_loss)
-    temp_g_loss = np.mean(temp_g_loss)
-    temp_d_fake_loss = np.mean(temp_d_fake_loss)
-    temp_d_real_loss = np.mean(temp_d_real_loss)
 
-    # # -----------
-    # #  Validation 
-    # # -----------
-    
-    # generator.eval()
-    # discriminator.eval()
-    # with torch.no_grad():
-    #     val_losses_g = []
-    #     val_losses_d = []
-    #     for i, (compositions, properties) in enumerate(valid_dataloader):
-    #         batch_size = compositions.shape[0]
+    results.append([epoch, temp_d_loss])
 
-    #         # Move to GPU if necessary
-    #         real_comps = compositions.type(Tensor).reshape(batch_size, opt.n_compositions)
-    #         labels = properties.type(LongTensor).reshape(batch_size, opt.n_properties)
-
-    #         # Sample noise and labels as generator input
-    #         latent_code = Tensor(np.random.normal(0, 1, (batch_size, opt.latent_dim)))
-
-    #         # Generate a batch of images
-    #         fake_comps = generator(labels, latent_code)
-
-    #         # Real images
-    #         real_validity = discriminator(real_comps, labels)
-    #         # Fake images
-    #         fake_validity = discriminator(fake_comps, labels)
-
-    #         # Loss for discriminator
-    #         d_val_loss = - torch.mean(real_validity) + torch.mean(fake_validity) + lambda_gp * gradient_penalty.detach()
-    #         # d_loss = (adversarial_loss(real_validity, valid) + adversarial_loss(fake_validity, fake)) / 2
-    #         val_losses_d.append(d_val_loss.item())
-
-    #         # Loss for generator
-    #         g_val_loss = - torch.mean(fake_validity)
-    #         # g_loss = adversarial_loss(fake_validity, valid)
-    #         val_losses_g.append(g_val_loss.item())
-
-    #     print(
-    #         "[Validation] [D loss: %f] [G loss: %f]"
-    #         % (np.mean(val_losses_d), np.mean(val_losses_g))
-    #     )
-
-    # results.append([epoch, temp_d_loss, temp_g_loss, np.mean(val_losses_d), np.mean(val_losses_g)])
-    results.append([epoch, temp_d_loss, temp_g_loss, temp_d_real_loss, temp_d_fake_loss])
-
-    # generator.train()
-    # discriminator.train()
-    # # schedulerD.step()
-    # # schedulerG.step()
 
 # ----------------------
 #  Results Visualization
 # ----------------------
 
 # store model
-torch.save(generator, './Results/generator_n.pth')
-torch.save(discriminator, './Results/discriminator_n.pth')
+torch.save(generator, './Results/generator.pth')
+torch.save(discriminator, './Results/discriminator.pth')
 
 
 # store loss results
-with open('./Results/results_n.csv', 'w', newline='') as file:
+with open('./Results/loss_results.csv', 'w', newline='') as file:
     writer = csv.writer(file)
-    # writer.writerow(["Epoch", "D Loss", "G Loss", 'Val D Loss', 'Val G Loss'])
-    writer.writerow(["Epoch", "D Loss", "G Loss", 'D Real Loss', 'D Fake Loss'])
+    writer.writerow(["Epoch", "D Loss"])
     writer.writerows(results)
 
-from draw import plot_losses
+#draw loss curve
 plot_losses()
 
 

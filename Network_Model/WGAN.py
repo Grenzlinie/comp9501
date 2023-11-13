@@ -13,15 +13,15 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8)) # type: ignore
             layers.append(nn.LeakyReLU(0.2, inplace=True)) # type: ignore
             return layers
-                
+
         self.model = nn.Sequential(
-            *block(opt.n_properties + opt.latent_dim, 256, normalize=False),
+            *block(opt.n_properties + opt.latent_dim, 128, normalize=False),
             *block(128, 256),
             *block(256, 512),
             *block(512, 1024),
             nn.Linear(1024, opt.n_compositions),
             nn.Softmax(dim=1),
-            
+
         )
 
 

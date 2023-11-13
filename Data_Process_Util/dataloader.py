@@ -1,32 +1,24 @@
-from cProfile import label
-from token import RPAR
-import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import random_split
 
 class AlloyDataset(Dataset):
     def __init__(self, file_path):
         self.data = pd.read_excel(file_path, engine='openpyxl')
         self.data = self.data.iloc[0:699]
-        self.scaler = MinMaxScaler()
-        self.data.iloc[:, 7:] = self.scaler.fit_transform(self.data.iloc[:, 7:])
-        self.cat_data = np.concatenate((self.data.iloc[:, 8].values.reshape(-1, 1), self.data.iloc[:, 11].values.reshape(-1, 1)), axis=1)
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         compositions = torch.tensor(self.data.iloc[idx, 1:7].values.astype(float), dtype=torch.float32)
-        properties = torch.tensor(self.cat_data[idx], dtype=torch.float32)
+        properties = torch.tensor(self.data.iloc[idx, 7:], dtype=torch.float32)
         return compositions, properties
-    
+
 def create_dataloader(file_path, batch_size, train_ratio=1.0):
     dataset = AlloyDataset(file_path)
     train_len = int(train_ratio * len(dataset))
-    print(train_len)
     valid_len = len(dataset) - train_len
     train_dataset, valid_dataset = random_split(dataset, [train_len, valid_len])
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
